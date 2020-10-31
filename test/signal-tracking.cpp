@@ -5,9 +5,7 @@
 #include <cmath>
 #include <cassert>
 
-using namespace sigslot;
-
-int sum = 0;
+static int sum = 0;
 
 void f1(int i) { sum += i; }
 struct o1 { void operator()(int i) { sum += 2*i; } };
@@ -19,16 +17,16 @@ struct s {
 
 struct oo {
     void operator()(int i) { sum += i; }
-    void operator()(double i) { sum += std::round(4*i); }
+    void operator()(double i) { sum += static_cast<int>(std::round(4*i)); }
 };
 
 struct dummy {};
 
-static_assert(trait::is_callable_v<trait::typelist<int>, decltype(&s::f1), std::shared_ptr<s>>, "");
+static_assert(sigslot::trait::is_callable_v<sigslot::trait::typelist<int>, decltype(&s::f1), std::shared_ptr<s>>, "");
 
 void test_track_shared() {
     sum = 0;
-    signal<int> sig;
+    sigslot::signal<int> sig;
 
     auto s1 = std::make_shared<s>();
     auto conn1 = sig.connect(&s::f1, s1);
@@ -54,7 +52,7 @@ void test_track_shared() {
 // bug #2 remove last slot first
 void test_track_shared_reversed() {
     sum = 0;
-    signal<int> sig;
+    sigslot::signal<int> sig;
 
     auto s1 = std::make_shared<s>();
     auto conn1 = sig.connect(&s::f1, s1);
@@ -79,7 +77,7 @@ void test_track_shared_reversed() {
 
 void test_track_other() {
     sum = 0;
-    signal<int> sig;
+    sigslot::signal<int> sig;
 
     auto d1 = std::make_shared<dummy>();
     auto conn1 = sig.connect(f1, d1);
@@ -104,8 +102,8 @@ void test_track_other() {
 
 void test_track_overloaded_function_object() {
     sum = 0;
-    signal<int> sig;
-    signal<double> sig1;
+    sigslot::signal<int> sig;
+    sigslot::signal<double> sig1;
 
     auto d1 = std::make_shared<dummy>();
     auto conn1 = sig.connect(oo{}, d1);
@@ -139,9 +137,9 @@ void test_track_generic_lambda() {
         (void)r;
     };
 
-    signal<int> sig1;
-    signal<std::string> sig2;
-    signal<double> sig3;
+    sigslot::signal<int> sig1;
+    sigslot::signal<std::string> sig2;
+    sigslot::signal<double> sig3;
 
     auto d1 = std::make_shared<dummy>();
     sig1.connect(f, d1);
@@ -168,4 +166,3 @@ int main() {
     test_track_generic_lambda();
     return 0;
 }
-

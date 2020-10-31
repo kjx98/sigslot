@@ -3,8 +3,7 @@
 #include <chrono>
 #include <cassert>
 #include <iostream>
-
-using namespace sigslot;
+#include <vector>
 
 void test_signal_performance() {
     using Clock = std::chrono::high_resolution_clock;
@@ -14,7 +13,7 @@ void test_signal_performance() {
     double ref_ns = 0.;
     sigslot::signal<> sig;
     {
-        std::vector<scoped_connection> connections;
+        std::vector<sigslot::scoped_connection> connections;
         connections.reserve(count);
         for (int i = 0; i < count; i++) {
             connections.emplace_back(sig.connect([]{}));
@@ -23,13 +22,13 @@ void test_signal_performance() {
         // Measure first signal time as reference
         const TimePoint begin = Clock::now();
         sig();
-        ref_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - begin).count();
+        ref_ns = double(std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - begin).count());
     }
 
     // Measure signal after all slot were disconnected
     const TimePoint begin = Clock::now();
     sig();
-    const double after_disconnection_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - begin).count();
+    const double after_disconnection_ns = double(std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - begin).count());
 
     // Ensure that the signal cost is not > at 10%
     const auto max_delta = 0.1;

@@ -5,9 +5,7 @@
 #include <cassert>
 #include <cmath>
 
-using namespace sigslot;
-
-int sum = 0;
+static int sum = 0;
 
 void f1(int i) { sum += i; }
 void f2(int i) noexcept { sum += 2*i; }
@@ -28,7 +26,7 @@ struct s {
 
 struct oo {
     void operator()(int i) { sum += i; }
-    void operator()(double i) { sum += std::round(4*i); }
+    void operator()(double i) { sum += int(std::round(4*i)); }
 };
 
 struct o1 { void operator()(int i) { sum += i; } };
@@ -40,9 +38,41 @@ struct o6 { void operator()(int i) const noexcept { sum += i; } };
 struct o7 { void operator()(int i) volatile noexcept { sum += i; } };
 struct o8 { void operator()(int i) const volatile noexcept { sum += i; } };
 
+void test_slot_count() {
+    sigslot::signal<int> sig;
+    s p;
+
+    sig.connect(&s::f1, &p);
+    assert(sig.slot_count() == 1);
+    sig.connect(&s::f2, &p);
+    assert(sig.slot_count() == 2);
+    sig.connect(&s::f3, &p);
+    assert(sig.slot_count() == 3);
+    sig.connect(&s::f4, &p);
+    assert(sig.slot_count() == 4);
+    sig.connect(&s::f5, &p);
+    assert(sig.slot_count() == 5);
+    sig.connect(&s::f6, &p);
+    assert(sig.slot_count() == 6);
+
+    {
+        sigslot::scoped_connection conn = sig.connect(&s::f7, &p);
+        assert(sig.slot_count() == 7);
+    }
+    assert(sig.slot_count() == 6);
+
+    auto conn = sig.connect(&s::f8, &p);
+    assert(sig.slot_count() == 7);
+    conn.disconnect();
+    assert(sig.slot_count() == 6);
+
+    sig.disconnect_all();
+    assert(sig.slot_count() == 0);
+}
+
 void test_free_connection() {
     sum = 0;
-    signal<int> sig;
+    sigslot::signal<int> sig;
 
     auto c1 = sig.connect(f1);
     sig(1);
@@ -55,7 +85,7 @@ void test_free_connection() {
 
 void test_static_connection() {
     sum = 0;
-    signal<int> sig;
+    sigslot::signal<int> sig;
 
     sig.connect(&s::s1);
     sig(1);
@@ -68,7 +98,7 @@ void test_static_connection() {
 
 void test_pmf_connection() {
     sum = 0;
-    signal<int> sig;
+    sigslot::signal<int> sig;
     s p;
 
     sig.connect(&s::f1, &p);
@@ -86,7 +116,7 @@ void test_pmf_connection() {
 
 void test_const_pmf_connection() {
     sum = 0;
-    signal<int> sig;
+    sigslot::signal<int> sig;
     const s p;
 
     sig.connect(&s::f2, &p);
@@ -100,7 +130,7 @@ void test_const_pmf_connection() {
 
 void test_function_object_connection() {
     sum = 0;
-    signal<int> sig;
+    sigslot::signal<int> sig;
 
     sig.connect(o1{});
     sig.connect(o2{});
@@ -117,8 +147,8 @@ void test_function_object_connection() {
 
 void test_overloaded_function_object_connection() {
     sum = 0;
-    signal<int> sig;
-    signal<double> sig1;
+    sigslot::signal<int> sig;
+    sigslot::signal<double> sig1;
 
     sig.connect(oo{});
     sig(1);
@@ -131,7 +161,7 @@ void test_overloaded_function_object_connection() {
 
 void test_lambda_connection() {
     sum = 0;
-    signal<int> sig;
+    sigslot::signal<int> sig;
 
     sig.connect([&](int i) { sum += i; });
     sig(1);
@@ -152,9 +182,9 @@ void test_generic_lambda_connection() {
         (void)r;
     };
 
-    signal<int> sig1;
-    signal<std::string> sig2;
-    signal<double> sig3;
+    sigslot::signal<int> sig1;
+    sigslot::signal<std::string> sig2;
+    sigslot::signal<double> sig3;
 
     sig1.connect(f);
     sig2.connect(f);
@@ -168,7 +198,7 @@ void test_generic_lambda_connection() {
 
 void test_lvalue_emission() {
     sum = 0;
-    signal<int> sig;
+    sigslot::signal<int> sig;
 
     auto c1 = sig.connect(f1);
     int v = 1;
@@ -182,7 +212,7 @@ void test_lvalue_emission() {
 
 void test_mutation() {
     int res = 0;
-    signal<int&> sig;
+    sigslot::signal<int&> sig;
 
     sig.connect([](int &r) { r += 1; });
     sig(res);
@@ -202,7 +232,7 @@ void test_compatible_args() {
         ll = l; ss = s; ii = i;
     };
 
-    signal<int, std::string, bool> sig;
+    sigslot::signal<int, std::string, bool> sig;
     sig.connect(f);
     sig('0', "foo", true);
 
@@ -215,7 +245,7 @@ void test_disconnection() {
     // test removing only connected
     {
         sum = 0;
-        signal<int> sig;
+        sigslot::signal<int> sig;
 
         auto sc = sig.connect(f1);
         sig(1);
@@ -230,7 +260,7 @@ void test_disconnection() {
     // test removing first connected
     {
         sum = 0;
-        signal<int> sig;
+        sigslot::signal<int> sig;
 
         auto sc = sig.connect(f1);
         sig(1);
@@ -249,7 +279,7 @@ void test_disconnection() {
     // test removing last connected
     {
         sum = 0;
-        signal<int> sig;
+        sigslot::signal<int> sig;
 
         sig.connect(f1);
         sig(1);
@@ -266,9 +296,174 @@ void test_disconnection() {
     }
 }
 
+void test_disconnection_by_callable() {
+    // disconnect a function pointer
+    {
+        sum = 0;
+        sigslot::signal<int> sig;
+
+        sig.connect(f1);
+        sig.connect(f2);
+        sig.connect(f2);
+        sig(1);
+        assert(sum == 5);
+        auto c = sig.disconnect(&f2);
+        assert(c == 2);
+        sig(1);
+        assert(sum == 6);
+    }
+
+    // disconnect a function
+    {
+        sum = 0;
+        sigslot::signal<int> sig;
+
+        sig.connect(f1);
+        sig.connect(f2);
+        sig(1);
+        assert(sum == 3);
+        sig.disconnect(f1);
+        sig(1);
+        assert(sum == 5);
+    }
+
+#ifdef SIGSLOT_RTTI_ENABLED
+    // disconnect by pmf
+    {
+        sum = 0;
+        sigslot::signal<int> sig;
+        s p;
+
+        sig.connect(&s::f1, &p);
+        sig.connect(&s::f2, &p);
+        sig(1);
+        assert(sum == 2);
+        sig.disconnect(&s::f1);
+        sig(1);
+        assert(sum == 3);
+    }
+
+    // disconnect by function object
+    {
+        sum = 0;
+        sigslot::signal<int> sig;
+
+        sig.connect(o1{});
+        sig.connect(o2{});
+        sig(1);
+        assert(sum == 2);
+        sig.disconnect(o1{});
+        sig(1);
+        assert(sum == 3);
+    }
+
+    // disconnect by lambda
+    {
+        sum = 0;
+        sigslot::signal<int> sig;
+        auto l1 = [&](int i) { sum += i; };
+        auto l2 = [&](int i) { sum += 2*i; };
+        sig.connect(l1);
+        sig.connect(l2);
+        sig(1);
+        assert(sum == 3);
+        sig.disconnect(l1);
+        sig(1);
+        assert(sum == 5);
+    }
+#endif
+}
+
+void test_disconnection_by_object() {
+    // disconnect by pointer
+    {
+        sum = 0;
+        sigslot::signal<int> sig;
+        s p1, p2;
+
+        sig.connect(&s::f1, &p1);
+        sig.connect(&s::f2, &p2);
+        sig(1);
+        assert(sum == 2);
+        sig.disconnect(&p1);
+        sig(1);
+        assert(sum == 3);
+    }
+
+    // disconnect by shared pointer
+    {
+        sum = 0;
+        sigslot::signal<int> sig;
+        auto p1 = std::make_shared<s>();
+        s p2;
+
+        sig.connect(&s::f1, p1);
+        sig.connect(&s::f2, &p2);
+        sig(1);
+        assert(sum == 2);
+        sig.disconnect(p1);
+        sig(1);
+        assert(sum == 3);
+    }
+}
+
+void test_disconnection_by_object_and_pmf() {
+    // disconnect by pointer
+    {
+        sum = 0;
+        sigslot::signal<int> sig;
+        s p1, p2;
+
+        sig.connect(&s::f1, &p1);
+        sig.connect(&s::f1, &p2);
+        sig.connect(&s::f2, &p1);
+        sig.connect(&s::f2, &p2);
+        sig(1);
+        assert(sum == 4);
+        sig.disconnect(&s::f1, &p2);
+        sig(1);
+        assert(sum == 7);
+    }
+
+    // disconnect by shared pointer
+    {
+        sum = 0;
+        sigslot::signal<int> sig;
+        auto p1 = std::make_shared<s>();
+        auto p2 = std::make_shared<s>();
+
+        sig.connect(&s::f1, p1);
+        sig.connect(&s::f1, p2);
+        sig.connect(&s::f2, p1);
+        sig.connect(&s::f2, p2);
+        sig(1);
+        assert(sum == 4);
+        sig.disconnect(&s::f1, p2);
+        sig(1);
+        assert(sum == 7);
+    }
+
+    // disconnect by tracker
+    {
+        sum = 0;
+        sigslot::signal<int> sig;
+
+        auto t = std::make_shared<bool>();
+        sig.connect(f1);
+        sig.connect(f2);
+        sig.connect(f1, t);
+        sig.connect(f2, t);
+        sig(1);
+        assert(sum == 6);
+        sig.disconnect(f2, t);
+        sig(1);
+        assert(sum == 10);
+    }
+}
+
 void test_scoped_connection() {
     sum = 0;
-    signal<int> sig;
+    sigslot::signal<int> sig;
 
     {
         auto sc1 = sig.connect_scoped(f1);
@@ -286,11 +481,11 @@ void test_scoped_connection() {
     sum = 0;
 
     {
-        scoped_connection sc1 = sig.connect(f1);
+        sigslot::scoped_connection sc1 = sig.connect(f1);
         sig(1);
         assert(sum == 1);
 
-        scoped_connection sc2 = sig.connect(f2);
+        auto sc2 = sig.connect_scoped(f2);
         sig(1);
         assert(sum == 4);
     }
@@ -301,7 +496,7 @@ void test_scoped_connection() {
 
 void test_connection_blocking() {
     sum = 0;
-    signal<int> sig;
+    sigslot::signal<int> sig;
 
     auto c1 = sig.connect(f1);
     sig.connect(f2);
@@ -319,7 +514,7 @@ void test_connection_blocking() {
 
 void test_connection_blocker() {
     sum = 0;
-    signal<int> sig;
+    sigslot::signal<int> sig;
 
     auto c1 = sig.connect(f1);
     sig.connect(f2);
@@ -338,7 +533,7 @@ void test_connection_blocker() {
 
 void test_signal_blocking() {
     sum = 0;
-    signal<int> sig;
+    sigslot::signal<int> sig;
 
     sig.connect(f1);
     sig.connect(f2);
@@ -356,7 +551,7 @@ void test_signal_blocking() {
 
 void test_all_disconnection() {
     sum = 0;
-    signal<int> sig;
+    sigslot::signal<int> sig;
 
     sig.connect(f1);
     sig.connect(f2);
@@ -370,7 +565,7 @@ void test_all_disconnection() {
 
 void test_connection_copying_moving() {
     sum = 0;
-    signal<int> sig;
+    sigslot::signal<int> sig;
 
     auto sc1 = sig.connect(f1);
     auto sc2 = sig.connect(f2);
@@ -399,7 +594,7 @@ void test_connection_copying_moving() {
 
 void test_scoped_connection_moving() {
     sum = 0;
-    signal<int> sig;
+    sigslot::signal<int> sig;
 
     {
         auto sc1 = sig.connect_scoped(f1);
@@ -410,7 +605,7 @@ void test_scoped_connection_moving() {
         sig(1);
         assert(sum == 4);
 
-        auto sc3 = std::move(sc1);;
+        auto sc3 = std::move(sc1);
         sig(1);
         assert(sum == 7);
 
@@ -425,7 +620,7 @@ void test_scoped_connection_moving() {
 
 void test_signal_moving() {
     sum = 0;
-    signal<int> sig;
+    sigslot::signal<int> sig;
 
     sig.connect(f1);
     sig.connect(f2);
@@ -456,11 +651,11 @@ struct object {
         }
     }
 
-    signal<T> & sig() { return s; }
+    sigslot::signal<T> & sig() { return s; }
 
 private:
     T v;
-    signal<T> s;
+    sigslot::signal<T> s;
 };
 
 void test_loop() {
@@ -489,6 +684,9 @@ int main() {
     test_compatible_args();
     test_mutation();
     test_disconnection();
+    test_disconnection_by_callable();
+    test_disconnection_by_object();
+    test_disconnection_by_object_and_pmf();
     test_scoped_connection();
     test_connection_blocker();
     test_connection_blocking();
@@ -498,6 +696,6 @@ int main() {
     test_scoped_connection_moving();
     test_signal_moving();
     test_loop();
+    test_slot_count();
     return 0;
 }
-
